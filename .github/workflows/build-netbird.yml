@@ -594,14 +594,6 @@ jobs:
               "https://github.com/tslxpc/openwrt-netbird/releases/download/v0.70.5/netbird_0.70.5-r1_${arch}.ipk" \
               -O "${{ github.workspace }}/shell/packages/netbird_${arch}.ipk"
             
-            if [ $? -ne 0 ]; then
-              echo "❌ 下载失败，尝试备用链接..."
-              wget -q --tries=3 --timeout=10 \
-                "https://ghproxy.com/https://github.com/tslxpc/openwrt-netbird/raw/main/packages/netbird_0.70.5-r1_${arch}.ipk" \
-                -O "${{ github.workspace }}/shell/packages/netbird_${arch}.ipk"
-              [ $? -ne 0 ] && { echo "❌ 备用链接下载失败"; exit 1; }
-            fi
-
             # 添加NetBird运行依赖
             echo 'CUSTOM_PACKAGES="$CUSTOM_PACKAGES kmod-wireguard wireguard-tools"' >> shell/custom-packages.sh
             echo "✅ NetBird集成成功 | 机型: $profile | 架构: $arch"
