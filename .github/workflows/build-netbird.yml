@@ -591,7 +591,7 @@ jobs:
             # 下载对应架构的IPK（带重试和备用源）
             echo "📥 正在下载NetBird IPK: netbird_0.70.5-r1_${arch}.ipk"
             wget -q --tries=3 --timeout=10 \
-              "https://github.com/tslxpc/openwrt-netbird/raw/main/packages/netbird_0.70.5-r1_${arch}.ipk" \
+              "https://github.com/tslxpc/openwrt-netbird/releases/download/v0.70.5/netbird_0.70.5-r1_${arch}.ipk" \
               -O "${{ github.workspace }}/shell/packages/netbird_${arch}.ipk"
             
             if [ $? -ne 0 ]; then
