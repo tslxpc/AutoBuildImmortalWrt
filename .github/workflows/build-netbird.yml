@@ -552,75 +552,43 @@ jobs:
             echo 'CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-app-store"' >> shell/custom-packages.sh
           fi
 
-      # 🔥 自动架构匹配 + 下载对应NetBird预编译IPK（完整优化版）
+           # 🔥 修正版：直接按机型判断架构（无需依赖后面步骤的变量）
       - name: Auto download NetBird IPK by architecture
         run: |
           if [ "${{ github.event.inputs.enable_netbird }}" == "true" ]; then
             mkdir -p ${{ github.workspace }}/shell/packages
-            platform="${{ env.platform }}"
+            # 直接读取用户选择的机型，不依赖后面步骤的$platform
+            profile="${{ github.event.inputs.profile }}"
             arch=""
 
-            # 自动匹配架构（完整覆盖主流平台）
-            case "$platform" in
-              # 联发科Filogic系列（MT7981/MT7986/MT7988全系列）
-              "mediatek/filogic")
+            # 1. 所有MT7981/7986/7988平台机型（包括konka_komi-a31）
+            case "$profile" in
+              konka_komi-a31|cudy_tr3000*|xiaomi_mi-router-ax3000t*|glinet_gl-mt2500|glinet_gl-mt3000|glinet_gl-mt6000|confiabits_mt7981|openembed_som7981|unielec_u7981*)
                 arch="aarch64_generic"
-                echo "✅ 识别MT7981/MT7986/MT7988平台，使用aarch64_generic架构" ;;
-              # 联发科MT7622系列
-              "mediatek/mt7622")
+                echo "✅ 识别MT7981平台机型 $profile → aarch64_generic" ;;
+              
+              # 2. MT7622平台机型（如红米AX6S）
+              redmi_ax6|xiaomi_redmi-router-ax6s)
                 arch="aarch64_cortex-a53"
-                echo "✅ 识别MT7622平台，使用aarch64_cortex-a53架构" ;;
-              # 联发科MT7621系列
-              "ramips/mt7621")
+                echo "✅ 识别MT7622平台机型 $profile → aarch64_cortex-a53" ;;
+              
+              # 3. MT7621平台机型（如小米4A千兆版）
+              *mt7621*)
                 arch="mipsel_24kc"
-                echo "✅ 识别MT7621平台，使用mipsel_24kc架构" ;;
-              # 高通IPQ40xx系列
-              "ipq40xx/generic")
+                echo "✅ 识别MT7621平台机型 $profile → mipsel_24kc" ;;
+              
+              # 4. IPQ40xx平台机型（如GL-B2200）
+              glinet_gl-b2200)
                 arch="arm_cortex-a7_neon-vfpv4"
-                echo "✅ 识别IPQ40xx平台，使用arm_cortex-a7_neon-vfpv4架构" ;;
-              # 博通BCM53xx系列
-              "bcm53xx/generic")
-                arch="arm_cortex-a9"
-                echo "✅ 识别BCM53xx平台，使用arm_cortex-a9架构" ;;
-              # 高通IPQ807x系列
-              "qualcommax/ipq807x")
-                arch="aarch64_generic"
-                echo "✅ 识别IPQ807x平台，使用aarch64_generic架构" ;;
-              # 高通IPQ60xx系列
-              "qualcommax/ipq60xx")
-                arch="aarch64_generic"
-                echo "✅ 识别IPQ60xx平台，使用aarch64_generic架构" ;;
-              # 新增其他可能平台
-              "x86/64")
-                arch="x86_64"
-                echo "✅ 识别x86_64平台，使用x86_64架构" ;;
-              "armvirt/32")
-                arch="arm_arm1176jzf-s_vfp"
-                echo "✅ 识别armvirt/32平台，使用arm_arm1176jzf-s_vfp架构" ;;
-              "armvirt/64")
-                arch="aarch64_generic"
-                echo "✅ 识别armvirt/64平台，使用aarch64_generic架构" ;;
-              # 容错处理
+                echo "✅ 识别IPQ40xx平台机型 $profile → arm_cortex-a7_neon-vfpv4" ;;
+              
+              # 5. 其他支持的机型，可按需添加
               *)
-                echo "⚠️ 警告：未明确匹配的平台: $platform"
-                echo "🔍 尝试自动探测架构..."
-                # 尝试从平台名称提取架构信息
-                if [[ "$platform" == *"aarch64"* || "$platform" == *"arm64"* ]]; then
-                  arch="aarch64_generic"
-                elif [[ "$platform" == *"arm"* && "$platform" != *"aarch64"* ]]; then
-                  arch="arm_cortex-a7_neon-vfpv4"
-                elif [[ "$platform" == *"mips"* ]]; then
-                  arch="mipsel_24kc"
-                elif [[ "$platform" == *"x86"* ]]; then
-                  arch="x86_64"
-                else
-                  echo "❌ 不支持的平台: $platform"
-                  exit 1
-                fi
-                echo "⚠️ 自动推断架构为: $arch" ;;
+                echo "❌ 不支持的机型: $profile"
+                exit 1 ;;
             esac
 
-            # 下载对应架构IPK（添加重试机制）
+            # 下载对应架构的IPK（带重试和备用源）
             echo "📥 正在下载NetBird IPK: netbird_0.70.5-r1_${arch}.ipk"
             wget -q --tries=3 --timeout=10 \
               "https://github.com/tslxpc/openwrt-netbird/raw/main/packages/netbird_0.70.5-r1_${arch}.ipk" \
@@ -634,9 +602,9 @@ jobs:
               [ $? -ne 0 ] && { echo "❌ 备用链接下载失败"; exit 1; }
             fi
 
-            # 添加依赖（确保WireGuard内核模块和工具被包含）
+            # 添加NetBird运行依赖
             echo 'CUSTOM_PACKAGES="$CUSTOM_PACKAGES kmod-wireguard wireguard-tools"' >> shell/custom-packages.sh
-            echo "✅ NetBird集成成功 | 平台: $platform | 架构: $arch"
+            echo "✅ NetBird集成成功 | 机型: $profile | 架构: $arch"
           fi
 
       - name: Build ImmortalWrt Firmware
