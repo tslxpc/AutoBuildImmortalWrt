@@ -101,7 +101,7 @@ jobs:
           fi
 
       # MT7981 专属：自动下载 NetBird (aarch64_generic 架构)
-      - name: Auto download NetBird IPK
+      - name: Enable NetBird IPK
         run: |
           if [ "${{ github.event.inputs.enable_netbird }}" == "true" ]; then
             echo 'CUSTOM_PACKAGES="$CUSTOM_PACKAGES netbird"' >> shell/custom-packages.sh
@@ -149,11 +149,11 @@ jobs:
           
           # 5. 设置国家代码和功率（符合中国法规）
           uci set wireless.radio0.country='CN'
-          uci set wireless.radio0.txpower='20'
+          uci set wireless.radio0.txpower='26'
           uci set wireless.radio0.htmode='HT20'  # 2.4G用HT20减少干扰
           
           uci set wireless.radio1.country='CN'
-          uci set wireless.radio1.txpower='23'
+          uci set wireless.radio1.txpower='26'
           uci set wireless.radio1.htmode='HE160' # 5G开启160MHz满速
           
           # 6. 修改默认无线接口的SSID和密码
