@@ -1,7 +1,7 @@
-# 纯 MT7981 (filogic) 平台专用构建工作流
-# 仅支持：康佳Komi-A31、移动A10全系列
-# 默认使用 luci 24.10.x 构建，特有机型自动切换 23.05.4
-name: Build ImmortalWrt MT7981 (A31/A10 Only)
+# 康佳Komi-A31/移动A10专属 ImmortalWrt 构建工作流
+# 仅支持：konka_komi-a31、cmcc_a10、cmcc_a10-stock、cmcc_a10-ubootmod
+# 默认使用 luci 24.10.x 构建，移动A10自动切换 23.05.4
+name: Build ImmortalWrt (A31/A10 Only)
 
 on:
   workflow_dispatch:
@@ -28,32 +28,24 @@ on:
         description: "设置默认root密码 (留空则使用ImmortalWrt默认空密码)"
         required: false
         default: ""
-      wifi_2g_ssid:
-        description: "2.4G WiFi名称 (不填则不修改默认)"
+      wifi_ssid:
+        description: "WiFi名称 (双频合一，不填则为 TSLXPC)"
         required: false
-        default: ""
-      wifi_2g_password:
-        description: "2.4G WiFi密码 (至少8位，不填则不加密)"
+        default: "TSLXPC"
+      wifi_password:
+        description: "WiFi密码 (至少8位，不填则为 00658205)"
         required: false
-        default: ""
-      wifi_5g_ssid:
-        description: "5G WiFi名称 (不填则不修改默认)"
-        required: false
-        default: ""
-      wifi_5g_password:
-        description: "5G WiFi密码 (至少8位，不填则不加密)"
-        required: false
-        default: ""
+        default: "00658205"
       enable_store:
-        description: "集成 store 商店"
+        description: "集成 iStore 商店"
         required: false
         type: boolean
-        default: false
+        default: true
       enable_netbird:
-        description: "集成 NetBird (自动匹配架构)"
+        description: "集成 NetBird 内网穿透"
         required: false
         type: boolean
-        default: false
+        default: true
       include_docker:
         description: "是否编译 Docker 插件"
         required: true
@@ -105,6 +97,7 @@ jobs:
         run: |
           if [ "${{ github.event.inputs.enable_store }}" == "true" ]; then
             echo 'CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-app-store"' >> shell/custom-packages.sh
+            echo "✅ iStore商店集成成功"
           fi
 
       # MT7981 专属：自动下载 NetBird (aarch64_generic 架构)
@@ -114,38 +107,35 @@ jobs:
             mkdir -p ${{ github.workspace }}/shell/packages
             arch="aarch64_generic"
             
-            # 下载对应架构IPK
+            # 下载对应架构IPK（带重试和超时）
             wget -q --tries=3 --timeout=10 \
               "https://github.com/tslxpc/openwrt-netbird/releases/download/v0.70.5/netbird_0.70.5-r1_${arch}.ipk" \
               -O "${{ github.workspace }}/shell/packages/netbird.ipk"
             
-            # 添加依赖
+            # 添加WireGuard运行依赖
             echo 'CUSTOM_PACKAGES="$CUSTOM_PACKAGES kmod-wireguard wireguard-tools"' >> shell/custom-packages.sh
-            echo "✅ NetBird集成成功 | 架构: $arch"
+            echo "✅ NetBird内网穿透集成成功 | 架构: $arch"
           fi
 
-      # 新增：生成默认root密码设置脚本
+      # 生成默认root密码设置脚本
       - name: Generate Default Root Password Script
         run: |
           if [ -n "${{ github.event.inputs.default_password }}" ]; then
-            # 创建uci-defaults脚本，固件首次启动时自动执行
             cat > "${{ github.workspace }}/glinet/99-set-root-password" << EOF
           #!/bin/sh
           # 自动设置默认root密码
           (echo "${{ github.event.inputs.default_password }}"; sleep 1; echo "${{ github.event.inputs.default_password }}") | passwd root > /dev/null
-          # 删除自身，避免重复执行
           rm -f /etc/uci-defaults/99-set-root-password
           EOF
             chmod +x "${{ github.workspace }}/glinet/99-set-root-password"
             echo "✅ 默认root密码设置成功"
           fi
 
-      # 新增：生成默认主机名和WiFi配置脚本
-      - name: Generate Default Hostname & WiFi Script
+      # 生成默认主机名和双频合一WiFi配置脚本（带802.11r/k/v/w漫游）
+      - name: Generate Default Hostname & Dual-Band WiFi Script
         run: |
-          # 初始化脚本内容
           SCRIPT_CONTENT="#!/bin/sh\n"
-          SCRIPT_CONTENT+="# 自动设置默认主机名和WiFi参数\n\n"
+          SCRIPT_CONTENT+="# 自动设置默认主机名和双频合一WiFi（带无缝漫游）\n\n"
           MODIFIED=false
 
           # 设置主机名
@@ -156,35 +146,59 @@ jobs:
             echo "✅ 默认主机名设置为: ${{ github.event.inputs.default_hostname }}"
           fi
 
-          # 设置2.4G WiFi (radio0)
-          if [ -n "${{ github.event.inputs.wifi_2g_ssid }}" ]; then
-            SCRIPT_CONTENT+="uci set wireless.@wifi-iface[0].ssid='${{ github.event.inputs.wifi_2g_ssid }}'\n"
-            SCRIPT_CONTENT+="uci set wireless.@wifi-iface[0].encryption='psk2'\n"
-            if [ -n "${{ github.event.inputs.wifi_2g_password }}" ]; then
-              SCRIPT_CONTENT+="uci set wireless.@wifi-iface[0].key='${{ github.event.inputs.wifi_2g_password }}'\n"
+          # 双频合一WiFi配置（2.4G+5G统一SSID+密码+漫游）
+          if [ -n "${{ github.event.inputs.wifi_ssid }}" ]; then
+            SSID="${{ github.event.inputs.wifi_ssid }}"
+            PASSWORD="${{ github.event.inputs.wifi_password }}"
+            
+            # 通用WiFi配置（双频共用）
+            COMMON_CONFIG="option ssid '$SSID'\n"
+            COMMON_CONFIG+="option encryption 'sae-mixed'\n"  # WPA3/WPA2混合加密
+            if [ -n "$PASSWORD" ] && [ ${#PASSWORD} -ge 8 ]; then
+              COMMON_CONFIG+="option key '$PASSWORD'\n"
             fi
-            SCRIPT_CONTENT+="uci set wireless.@wifi-iface[0].disabled='0'\n"
-            MODIFIED=true
-            echo "✅ 2.4G WiFi名称设置为: ${{ github.event.inputs.wifi_2g_ssid }}"
-          fi
+            COMMON_CONFIG+="option network 'lan'\n"
+            COMMON_CONFIG+="option disabled '0'\n"
+            
+            # 802.11r/k/v/w 无缝漫游配置
+            ROAMING_CONFIG="option ieee80211r '1'\n"
+            ROAMING_CONFIG+="option mobility_domain 'a1b2'\n"
+            ROAMING_CONFIG+="option ft_over_ds '1'\n"
+            ROAMING_CONFIG+="option ft_psk_generate_local '1'\n"
+            ROAMING_CONFIG+="option ieee80211k '1'\n"
+            ROAMING_CONFIG+="option ieee80211v '1'\n"
+            ROAMING_CONFIG+="option bss_transition '1'\n"
+            ROAMING_CONFIG+="option ieee80211w '1'\n"  # 管理帧保护
 
-          # 设置5G WiFi (radio1)
-          if [ -n "${{ github.event.inputs.wifi_5g_ssid }}" ]; then
-            SCRIPT_CONTENT+="uci set wireless.@wifi-iface[1].ssid='${{ github.event.inputs.wifi_5g_ssid }}'\n"
-            SCRIPT_CONTENT+="uci set wireless.@wifi-iface[1].encryption='psk2'\n"
-            if [ -n "${{ github.event.inputs.wifi_5g_password }}" ]; then
-              SCRIPT_CONTENT+="uci set wireless.@wifi-iface[1].key='${{ github.event.inputs.wifi_5g_password }}'\n"
-            fi
-            SCRIPT_CONTENT+="uci set wireless.@wifi-iface[1].disabled='0'\n"
+            # 配置2.4G WiFi (radio0)
+            SCRIPT_CONTENT+="# 2.4G WiFi配置\n"
+            SCRIPT_CONTENT+="uci set wireless.@wifi-iface[0].device='radio0'\n"
+            SCRIPT_CONTENT+="uci set wireless.@wifi-iface[0].mode='ap'\n"
+            SCRIPT_CONTENT+="$COMMON_CONFIG"
+            SCRIPT_CONTENT+="$ROAMING_CONFIG"
+            SCRIPT_CONTENT+="uci set wireless.radio0.country='CN'\n"
+            SCRIPT_CONTENT+="uci set wireless.radio0.txpower='20'\n"
+            SCRIPT_CONTENT+="uci set wireless.radio0.htmode='HT20'\n"  # 2.4G推荐HT20减少干扰
+
+            # 配置5G WiFi (radio1)
+            SCRIPT_CONTENT+="\n# 5G WiFi配置\n"
+            SCRIPT_CONTENT+="uci set wireless.@wifi-iface[1].device='radio1'\n"
+            SCRIPT_CONTENT+="uci set wireless.@wifi-iface[1].mode='ap'\n"
+            SCRIPT_CONTENT+="$COMMON_CONFIG"
+            SCRIPT_CONTENT+="$ROAMING_CONFIG"
+            SCRIPT_CONTENT+="uci set wireless.radio1.country='CN'\n"
+            SCRIPT_CONTENT+="uci set wireless.radio1.txpower='23'\n"
+            SCRIPT_CONTENT+="uci set wireless.radio1.htmode='HE160'\n"  # 5G开启160MHz频宽
+
             MODIFIED=true
-            echo "✅ 5G WiFi名称设置为: ${{ github.event.inputs.wifi_5g_ssid }}"
+            echo "✅ 双频合一WiFi设置成功 | SSID: $SSID"
+            echo "✅ 已启用802.11r/k/v/w无缝漫游"
           fi
 
           # 提交配置并删除脚本
           if [ "$MODIFIED" = true ]; then
             SCRIPT_CONTENT+="\nuci commit wireless\n"
             SCRIPT_CONTENT+="rm -f /etc/uci-defaults/99-set-hostname-wifi\n"
-            # 写入脚本文件
             echo -e "$SCRIPT_CONTENT" > "${{ github.workspace }}/glinet/99-set-hostname-wifi"
             chmod +x "${{ github.workspace }}/glinet/99-set-hostname-wifi"
           fi
@@ -193,18 +207,17 @@ jobs:
         run: |
           profile="${{ github.event.inputs.profile }}"
           include_docker="${{ github.event.inputs.include_docker }}"
-          # 固定为 MT7981 平台
           echo "platform=mediatek/filogic" >> $GITHUB_ENV
           tag="mediatek-filogic-openwrt-24.10.6"
 
-          # 移动A10系列：自动切换 23.05.4
+          # 移动A10系列自动切换到23.05.4（兼容性更好）
           case "$profile" in
             cmcc_a10|cmcc_a10-stock|cmcc_a10-ubootmod)
               tag=mediatek-filogic-openwrt-23.05.4
               cp ${{ github.workspace }}/mediatek-filogic/build23.sh ${{ github.workspace }}/mediatek-filogic/build24.sh ;;
           esac
 
-          # 启动构建
+          # 启动Docker构建
           docker run --rm -i \
             --user root \
             -v "${{ github.workspace }}/bin:/home/build/immortalwrt/bin" \
@@ -224,15 +237,16 @@ jobs:
       - name: Generate Release Info
         run: |
           cat > ${{ github.workspace }}/mediatek-filogic/info.md << EOF
-          ### 机型: ${{ github.event.inputs.profile }}
-          ### 管理地址: ${{ github.event.inputs.custom_router_ip }}
-          $( [[ -n "${{ github.event.inputs.default_hostname }}" ]] && echo "- 已设置默认主机名: ${{ github.event.inputs.default_hostname }}" )
-          $( [[ -n "${{ github.event.inputs.default_password }}" ]] && echo "- 已设置默认root密码" )
-          $( [[ -n "${{ github.event.inputs.wifi_2g_ssid }}" ]] && echo "- 已设置默认2.4G WiFi: ${{ github.event.inputs.wifi_2g_ssid }}" )
-          $( [[ -n "${{ github.event.inputs.wifi_5g_ssid }}" ]] && echo "- 已设置默认5G WiFi: ${{ github.event.inputs.wifi_5g_ssid }}" )
-          $( [[ "${{ github.event.inputs.include_docker }}" == "yes" ]] && echo "- 已集成 Docker" )
-          $( [[ "${{ github.event.inputs.enable_store }}" == "true" ]] && echo "- 已集成 iStore 商店" )
-          $( [[ "${{ github.event.inputs.enable_netbird }}" == "true" ]] && echo "- 已集成 NetBird 内网穿透" )
+          ## 固件信息
+          - **机型**: ${{ github.event.inputs.profile }}
+          - **管理地址**: ${{ github.event.inputs.custom_router_ip }}
+          - **默认WiFi**: ${{ github.event.inputs.wifi_ssid }} / ${{ github.event.inputs.wifi_password }}
+          - **双频合一**: 已启用（带802.11r/k/v/w无缝漫游）
+          $( [[ -n "${{ github.event.inputs.default_hostname }}" ]] && echo "- **默认主机名**: ${{ github.event.inputs.default_hostname }}" )
+          $( [[ -n "${{ github.event.inputs.default_password }}" ]] && echo "- **默认root密码**: 已设置" )
+          $( [[ "${{ github.event.inputs.enable_store }}" == "true" ]] && echo "- **集成功能**: iStore商店" )
+          $( [[ "${{ github.event.inputs.enable_netbird }}" == "true" ]] && echo "- **集成功能**: NetBird内网穿透" )
+          $( [[ "${{ github.event.inputs.include_docker }}" == "yes" ]] && echo "- **集成功能**: Docker容器" )
           EOF
 
       - name: Upload Firmware Release
