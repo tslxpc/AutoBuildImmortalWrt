@@ -104,27 +104,8 @@ jobs:
       - name: Auto download NetBird IPK
         run: |
           if [ "${{ github.event.inputs.enable_netbird }}" == "true" ]; then
-            mkdir -p ${{ github.workspace }}/shell/packages
-            arch="aarch64_generic"
-            
-            # 下载对应架构IPK（带重试和超时）
-            wget -q --tries=3 --timeout=10 \
-              "https://github.com/tslxpc/openwrt-netbird/releases/download/v0.70.5/netbird_0.70.5-r1_${arch}.ipk" \
-              -O "${{ github.workspace }}/shell/packages/netbird.ipk"
-            
-            # 添加WireGuard运行依赖
-            echo 'CUSTOM_PACKAGES="$CUSTOM_PACKAGES kmod-wireguard wireguard-tools"' >> shell/custom-packages.sh
-            echo "✅ NetBird内网穿透集成成功 | 架构: $arch"
-          fi
-
-      # 修复NetBird init脚本依赖缺失问题
-      - name: Fix NetBird init script dependency
-        run: |
-          if [ "${{ github.event.inputs.enable_netbird }}" == "true" ]; then
-            # 创建缺失的netifd-proto.sh文件（空文件即可满足依赖）
-            mkdir -p "${{ github.workspace }}/custom/lib/netifd"
-            touch "${{ github.workspace }}/custom/lib/netifd/netifd-proto.sh"
-            echo "✅ 已修复NetBird init脚本依赖缺失问题"
+            echo 'CUSTOM_PACKAGES="$CUSTOM_PACKAGES netbird"' >> shell/custom-packages.sh
+            echo "✅ NetBird集成成功"
           fi
 
       # 生成默认root密码设置脚本
