@@ -41,6 +41,11 @@ on:
         required: false
         type: boolean
         default: true
+      enable_quickstart:
+        description: "集成首页和向导"
+        required: false
+        type: boolean
+        default: true
       enable_netbird:
         description: "集成 NetBird 内网穿透"
         required: false
@@ -100,13 +105,19 @@ jobs:
             echo "✅ iStore商店集成成功"
           fi
 
-      # MT7981 专属：自动下载 NetBird (aarch64_generic 架构)
       - name: Enable NetBird IPK
         run: |
           if [ "${{ github.event.inputs.enable_netbird }}" == "true" ]; then
             echo 'CUSTOM_PACKAGES="$CUSTOM_PACKAGES netbird"' >> shell/custom-packages.sh
             echo "✅ NetBird集成成功"
           fi
+          
+      - name: Enable quickstart 
+        run: |
+          if [ "${{ github.event.inputs.enable_quickstart }}" == "true" ]; then
+            echo 'CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-i18n-quickstart-zh-cn"' >> shell/custom-packages.sh
+            echo "✅ 首页和向导集成成功"
+          fi    
 
       # 生成默认root密码设置脚本
       - name: Generate Default Root Password Script
