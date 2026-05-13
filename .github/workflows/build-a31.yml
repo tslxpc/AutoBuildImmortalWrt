@@ -268,7 +268,7 @@ jobs:
           profile="${{ github.event.inputs.profile }}"
           include_docker="${{ github.event.inputs.include_docker }}"
           echo "platform=mediatek/filogic" >> $GITHUB_ENV
-          tag="mediatek-filogic-openwrt-24.10.6"
+          tag="mediatek-filogic-openwrt-24.10.5"
 
           # 移动A10系列自动切换到23.05.4（兼容性更好）
           case "$profile" in
