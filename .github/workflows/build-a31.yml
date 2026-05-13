@@ -28,7 +28,7 @@ on:
           - "64"   # overlay≈44MB
           - "96"   # overlay≈76MB
           - "128"  # overlay≈108MB（推荐）
-          - "192"  # overlay≈172MB（极限）
+          - "192"  # overlay≈172MB（极限，仅康佳A31可用）
         default: "128"
       default_hostname:
         description: "设置默认主机名 (不填则为 ImmortalWrt)"
@@ -284,13 +284,24 @@ jobs:
           case "$profile" in
             cmcc_a10|cmcc_a10-stock|cmcc_a10-ubootmod)
               tag=mediatek-filogic-openwrt-23.05.4
-              cp ${{ github.workspace }}/mediatek-filogic/build23.sh ${{ github.workspace }}/mediatek-filogic/build24.sh ;;
+              cp ${{ github.workspace }}/mediatek-filogic/build23.sh ${{ github.workspace }}/mediatek-filogic/build24.sh
+              # 移动A10最大支持96MB rootfs
+              if [ "${{ github.event.inputs.rootfs_size }}" -gt 96 ]; then
+                echo "⚠️  移动A10系列最大支持96MB rootfs，自动调整为96MB"
+                ROOTFS_SIZE=96
+              else
+                ROOTFS_SIZE="${{ github.event.inputs.rootfs_size }}"
+              fi
+              ;;
+            *)
+              # 康佳A31支持最大192MB
+              ROOTFS_SIZE="${{ github.event.inputs.rootfs_size }}"
+              ;;
           esac
 
-          # ✅ 新增：设置rootfs总大小（直接控制overlay可用空间）
-          echo "CONFIG_TARGET_ROOTFS_PARTSIZE=${{ github.event.inputs.rootfs_size }}" >> .config
-          echo "✅ rootfs大小已设置为: ${{ github.event.inputs.rootfs_size }}MB"
-          echo "✅ 预计overlay可用空间: $((${{ github.event.inputs.rootfs_size }} - 20))MB"
+          # ✅ 修复：使用ImageBuilder官方支持的EXTRA_IMAGE_CONFIG环境变量设置rootfs大小
+          echo "✅ rootfs大小已设置为: ${ROOTFS_SIZE}MB"
+          echo "✅ 预计overlay可用空间: $((${ROOTFS_SIZE} - 20))MB"
 
           # 启动Docker构建
           docker run --rm -i \
@@ -302,21 +313,35 @@ jobs:
             -v "${{ github.workspace }}/shell:/home/build/immortalwrt/shell" \
             -v "${{ github.workspace }}/shell/packages:/home/build/immortalwrt/packages" \
             -v "${{ github.workspace }}/mediatek-filogic/build24.sh:/home/build/immortalwrt/build.sh" \
-            -v "${{ github.workspace }}/.config:/home/build/immortalwrt/.config" \
             -e PROFILE="$profile" \
             -e INCLUDE_DOCKER="$include_docker" \
             -e ENABLE_PPPOE="${{ inputs.enable_pppoe }}" \
             -e PPPOE_ACCOUNT="${{ inputs.pppoe_account }}" \
             -e PPPOE_PASSWORD="${{ inputs.pppoe_password }}" \
+            -e EXTRA_IMAGE_CONFIG="CONFIG_TARGET_ROOTFS_PARTSIZE=${ROOTFS_SIZE}" \
           immortalwrt/imagebuilder:$tag /bin/bash /home/build/immortalwrt/build.sh
 
       - name: Generate Release Info
         run: |
+          # 计算实际使用的rootfs大小
+          case "${{ github.event.inputs.profile }}" in
+            cmcc_a10|cmcc_a10-stock|cmcc_a10-ubootmod)
+              if [ "${{ github.event.inputs.rootfs_size }}" -gt 96 ]; then
+                ACTUAL_ROOTFS=96
+              else
+                ACTUAL_ROOTFS="${{ github.event.inputs.rootfs_size }}"
+              fi
+              ;;
+            *)
+              ACTUAL_ROOTFS="${{ github.event.inputs.rootfs_size }}"
+              ;;
+          esac
+          
           cat > ${{ github.workspace }}/mediatek-filogic/info.md << EOF
           ## 固件信息
           - **机型**: ${{ github.event.inputs.profile }}
           - **管理地址**: ${{ github.event.inputs.custom_router_ip }}
-          - **rootfs总大小**: ${{ github.event.inputs.rootfs_size }}MB (overlay可用≈$((${{ github.event.inputs.rootfs_size }} - 20))MB)
+          - **rootfs总大小**: ${ACTUAL_ROOTFS}MB (overlay可用≈$((${ACTUAL_ROOTFS} - 20))MB)
           - **默认WiFi**: ${{ github.event.inputs.wifi_ssid }} / ${{ github.event.inputs.wifi_password }}
           - **双频合一**: 已启用（最终修复版，无迁移提示）
           - **无缝漫游**: 已启用802.11r/k/v/w
